@@ -1,0 +1,22 @@
+{
+  "name": "pipo-saas",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter api dev\" \"pnpm --filter dashboard dev\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r test:unit",
+    "test:integration": "pnpm -r test:integration",
+    "db:generate": "pnpm --filter @pipo/db prisma generate",
+    "db:migrate": "pnpm --filter @pipo/db prisma migrate dev",
+    "db:migrate:prod": "pnpm --filter @pipo/db prisma migrate deploy",
+    "db:studio": "pnpm --filter @pipo/db prisma studio",
+    "db:seed": "pnpm --filter @pipo/db seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.6.0"
+  }
+}

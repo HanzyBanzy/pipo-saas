@@ -1,0 +1,535 @@
+// Pipo House — Prisma Schema
+// Requires pgvector extension for vector embeddings
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Plan {
+  TRIAL
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PersonalityMode {
+  PROFESSIONAL
+  FRIENDLY
+  CONCIERGE
+  MINIMAL
+}
+
+enum KnowledgeCategory {
+  CHECK_IN
+  CHECK_OUT
+  HOUSE_RULES
+  WIFI
+  PARKING
+  AMENITIES
+  LOCAL_AREA
+  EMERGENCY
+  FAQ
+  CUSTOM
+}
+
+enum AccessLevel {
+  PUBLIC
+  AI_READABLE
+  STAFF_ONLY
+  ENCRYPTED
+}
+
+enum Channel {
+  WEB_CHAT
+  WHATSAPP
+  LINE
+  EMAIL
+  SMS
+  DIRECT
+}
+
+enum ConversationStatus {
+  OPEN
+  RESOLVED
+  ESCALATED
+  ARCHIVED
+}
+
+enum MessageRole {
+  GUEST
+  AI
+  STAFF
+  SYSTEM
+}
+
+enum EscalationUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EscalationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  DISMISSED
+}
+
+enum EscalationTrigger {
+  AI_REQUESTED
+  KEYWORD_MATCH
+  SENTIMENT_THRESHOLD
+  TIMEOUT
+  MANUAL
+  SECURITY_VIOLATION
+}
+
+enum IntegrationType {
+  WHATSAPP_TWILIO
+  LINE
+  GOOGLE_CALENDAR
+  BOOKING_COM
+  AIRBNB
+  STRIPE
+  CUSTOM_WEBHOOK
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING_SETUP
+}
+
+// ---------------------------------------------------------------------------
+// Organization & Users
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(TRIAL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     OrganizationMember[]
+  properties  Property[]
+  integrations Integration[]
+  auditLogs   AuditLog[]
+
+  @@index([slug])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships OrganizationMember[]
+  auditLogs   AuditLog[]
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(MEMBER)
+  invitedEmail   String?
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Properties
+// ---------------------------------------------------------------------------
+
+model Property {
+  id               String          @id @default(cuid())
+  organizationId   String
+  name             String
+  slug             String
+  status           PropertyStatus  @default(ACTIVE)
+  timezone         String          @default("UTC")
+  defaultLanguage  String          @default("en")
+  personalityMode  PersonalityMode @default(CONCIERGE)
+  aiEnabled        Boolean         @default(true)
+  webChatEnabled   Boolean         @default(true)
+  brandColor       String?
+  systemPromptExtra String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeItems  KnowledgeItem[]
+  secrets         SecretItem[]
+  conversations   Conversation[]
+  escalationRules EscalationRule[]
+  integrations    PropertyIntegration[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Base
+// ---------------------------------------------------------------------------
+
+model KnowledgeItem {
+  id             String            @id @default(cuid())
+  propertyId     String
+  title          String
+  content        String            @db.Text
+  category       KnowledgeCategory
+  accessLevel    AccessLevel       @default(AI_READABLE)
+  isPublished    Boolean           @default(false)
+  publishedAt    DateTime?
+  language       String            @default("en")
+  sortOrder      Int               @default(0)
+  embedding      Unsupported("vector(1536)")?
+  embeddingModel String?
+  embeddedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  property  Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  versions  KnowledgeVersion[]
+
+  @@index([propertyId])
+  @@index([propertyId, category])
+  @@index([propertyId, isPublished])
+  @@index([accessLevel])
+}
+
+model KnowledgeVersion {
+  id              String   @id @default(cuid())
+  knowledgeItemId String
+  version         Int
+  title           String
+  content         String   @db.Text
+  savedById       String?
+  createdAt       DateTime @default(now())
+
+  knowledgeItem KnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeItemId, version])
+  @@index([knowledgeItemId])
+}
+
+// ---------------------------------------------------------------------------
+// Secret Vault
+// ---------------------------------------------------------------------------
+
+model SecretItem {
+  id         String   @id @default(cuid())
+  propertyId String
+  key        String
+  value      Bytes
+  iv         Bytes
+  authTag    Bytes
+  guestHint  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, key])
+  @@index([propertyId])
+}
+
+// ---------------------------------------------------------------------------
+// Conversations & Messages
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id                     String             @id @default(cuid())
+  propertyId             String
+  channel                Channel
+  status                 ConversationStatus @default(OPEN)
+  externalConversationId String?
+  guestName              String?
+  guestIdentifier        String?
+  language               String             @default("en")
+  resolvedAt             DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  escalations Escalation[]
+
+  @@index([propertyId])
+  @@index([propertyId, status])
+  @@index([externalConversationId])
+  @@index([createdAt])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String      @db.Text
+  sourceItemIds  String[]    @default([])
+  injectionScore Float?
+  tokensInput    Int?
+  tokensOutput   Int?
+  latencyMs      Int?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Escalations
+// ---------------------------------------------------------------------------
+
+model Escalation {
+  id             String            @id @default(cuid())
+  conversationId String
+  trigger        EscalationTrigger
+  urgency        EscalationUrgency @default(MEDIUM)
+  status         EscalationStatus  @default(OPEN)
+  reason         String
+  resolvedById   String?
+  resolvedAt     DateTime?
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([status])
+  @@index([urgency])
+  @@index([createdAt])
+}
+
+model EscalationRule {
+  id         String            @id @default(cuid())
+  propertyId String
+  name       String
+  trigger    EscalationTrigger
+  urgency    EscalationUrgency @default(MEDIUM)
+  keywords   String[]          @default([])
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([propertyId, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Integrations
+// ---------------------------------------------------------------------------
+
+model Integration {
+  id             String            @id @default(cuid())
+  organizationId String
+  type           IntegrationType
+  name           String
+  status         IntegrationStatus @default(PENDING_SETUP)
+  credentials    Bytes
+  credentialsIv  Bytes
+  credentialsTag Bytes
+  config         Json              @default("{}")
+  lastSyncAt     DateTime?
+  errorMessage   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyIntegrations PropertyIntegration[]
+  webhookEvents       InboundWebhookEvent[]
+
+  @@index([organizationId])
+  @@index([organizationId, type])
+  @@index([status])
+}
+
+model PropertyIntegration {
+  id            String   @id @default(cuid())
+  propertyId    String
+  integrationId String
+  config        Json     @default("{}")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, integrationId])
+  @@index([propertyId])
+  @@index([integrationId])
+}
+
+// ---------------------------------------------------------------------------
+// Webhook Events
+// ---------------------------------------------------------------------------
+
+model InboundWebhookEvent {
+  id            String   @id @default(cuid())
+  integrationId String
+  externalId    String
+  payload       Json
+  processedAt   DateTime?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, externalId])
+  @@index([integrationId])
+  @@index([processedAt])
+  @@index([createdAt])
+}
+
+model OutboundWebhook {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  url            String
+  events         String[]
+  signingSecret  Bytes
+  signingIv      Bytes
+  signingTag     Bytes
+  isActive       Boolean  @default(true)
+  lastTriggeredAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  actorId        String?
+  actorType      String   @default("user")
+  action         String
+  resourceType   String?
+  resourceId     String?
+  ipAddress      String?
+  userAgent      String?
+  traceId        String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([traceId])
+}
+
+// ---------------------------------------------------------------------------
+// QA / Testing
+// ---------------------------------------------------------------------------
+
+model TestScenario {
+  id           String   @id @default(cuid())
+  propertyId   String
+  name         String
+  description  String?
+  userMessage  String   @db.Text
+  expectedTags String[]
+  isSecurity   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  qaResults QAResult[]
+
+  @@index([propertyId])
+  @@index([propertyId, isSecurity])
+}
+
+model QAResult {
+  id             String   @id @default(cuid())
+  qaRunId        String
+  scenarioId     String
+  passed         Boolean
+  actualReply    String   @db.Text
+  violations     String[]
+  latencyMs      Int?
+  tokensUsed     Int?
+  createdAt      DateTime @default(now())
+
+  qaRun    QARun        @relation(fields: [qaRunId], references: [id], onDelete: Cascade)
+  scenario TestScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([qaRunId])
+  @@index([scenarioId])
+}
+
+model QARun {
+  id            String   @id @default(cuid())
+  propertyId    String
+  triggeredById String?
+  totalScenarios Int
+  passed        Int
+  failed        Int
+  blockedDeploy Boolean  @default(false)
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  results QAResult[]
+
+  @@index([propertyId])
+  @@index([startedAt])
+}
