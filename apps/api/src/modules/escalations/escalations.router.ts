@@ -259,9 +259,19 @@ escalationsRouter.patch(
       const isResolving =
         updates.status === 'RESOLVED' || updates.status === 'DISMISSED';
 
+      if (isResolving && (escalation.status === 'RESOLVED' || escalation.status === 'DISMISSED')) {
+        res.status(409).json({ error: `Escalation is already ${escalation.status.toLowerCase()}` });
+        return;
+      }
+
       const cleanUpdates = Object.fromEntries(
         Object.entries(updates).filter(([, v]) => v !== undefined),
       );
+
+      if (Object.keys(cleanUpdates).length === 0) {
+        res.status(400).json({ error: 'No fields to update' });
+        return;
+      }
 
       const updated = await prisma.escalation.update({
         where: { id: escalationId },
