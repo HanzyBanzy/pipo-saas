@@ -6,6 +6,7 @@ import { requireTenant, requireRole } from '../../middleware/tenant.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { auditLog } from '../../middleware/audit.js';
 import { logger } from '../../config/logger.js';
+import { sendEscalationEmail } from '../../lib/email.js';
 
 export const escalationsRouter: RouterType = Router({ mergeParams: true });
 
@@ -205,6 +206,15 @@ escalationsRouter.post(
           urgency: data.urgency,
           reason: data.reason,
         },
+        include: {
+          conversation: {
+            select: {
+              guestName: true,
+              propertyId: true,
+              property: { select: { name: true } },
+            },
+          },
+        },
       });
 
       // Mark conversation as escalated
@@ -212,6 +222,20 @@ escalationsRouter.post(
         where: { id: data.conversationId },
         data: { status: 'ESCALATED' },
       });
+
+      // Send email notification
+      const hostEmail = process.env['HOST_NOTIFICATION_EMAIL'];
+      if (hostEmail) {
+        void sendEscalationEmail({
+          to: hostEmail,
+          propertyName: escalation.conversation.property.name,
+          guestName: escalation.conversation.guestName ?? 'Guest',
+          reason: escalation.reason,
+          urgency: escalation.urgency,
+          conversationId: escalation.conversationId,
+          propertyId: escalation.conversation.propertyId,
+        });
+      }
 
       res.status(201).json({ escalation });
     } catch (err: unknown) {

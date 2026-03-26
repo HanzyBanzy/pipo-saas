@@ -6,12 +6,17 @@ import { propertiesRouter } from '../modules/properties/properties.router.js';
 import { knowledgeRouter } from '../modules/knowledge/knowledge.router.js';
 import { secretsRouter } from '../modules/secrets/secrets.router.js';
 import { chatRouter } from '../modules/chat/chat.router.js';
+import { widgetRouter } from '../modules/chat/widget.router.js';
 import { conversationsRouter } from '../modules/conversations/conversations.router.js';
 import { escalationsRouter } from '../modules/escalations/escalations.router.js';
 
 export function createRouter(): Router {
   const router = Router();
 
+  // Public widget routes — no auth required
+  router.use('/', widgetRouter);
+
+  // Authenticated routes
   router.use(clerkAuth);
   router.use(apiRateLimit);
 

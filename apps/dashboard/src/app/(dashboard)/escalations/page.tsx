@@ -10,6 +10,13 @@ const HEADERS = {
   'Content-Type': 'application/json',
 };
 
+interface Message {
+  id: string;
+  role: 'GUEST' | 'AI' | 'STAFF' | 'SYSTEM';
+  content: string;
+  createdAt: string;
+}
+
 interface Conversation {
   id: string;
   guestName: string | null;
@@ -38,6 +45,231 @@ const URGENCY_COLORS: Record<string, string> = {
 };
 
 const URGENCY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+
+function ReplyPanel({
+  escalation,
+  onMessageSent,
+}: {
+  escalation: Escalation;
+  onMessageSent: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  const propertyId = escalation.conversation.property.id;
+
+  async function loadMessages() {
+    setLoadingMessages(true);
+    try {
+      const res = await fetch(
+        `${API}/api/properties/${propertyId}/conversations/${escalation.conversationId}`,
+        { headers: HEADERS },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { conversation: { messages: Message[] } };
+        const last10 = data.conversation.messages.slice(-10);
+        setMessages(last10);
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingMessages(false);
+    }
+  }
+
+  function handleToggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && messages.length === 0) {
+      void loadMessages();
+    }
+  }
+
+  async function handleSend() {
+    const text = reply.trim();
+    if (!text) return;
+    setSending(true);
+    setSendError(null);
+    setSendSuccess(false);
+    try {
+      // Send STAFF message
+      const msgRes = await fetch(
+        `${API}/api/properties/${propertyId}/conversations/${escalation.conversationId}/messages`,
+        {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify({ role: 'STAFF', content: text }),
+        },
+      );
+      if (!msgRes.ok) throw new Error(`HTTP ${msgRes.status}`);
+
+      // Update escalation to IN_PROGRESS if OPEN
+      if (escalation.status === 'OPEN') {
+        await fetch(`${API}/api/escalations/${escalation.id}`, {
+          method: 'PATCH',
+          headers: HEADERS,
+          body: JSON.stringify({ status: 'IN_PROGRESS' }),
+        });
+      }
+
+      setReply('');
+      setSendSuccess(true);
+      setTimeout(() => setSendSuccess(false), 3000);
+      await loadMessages();
+      onMessageSent();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const isActive = escalation.status === 'OPEN' || escalation.status === 'IN_PROGRESS';
+  if (!isActive) return null;
+
+  return (
+    <div style={{ marginTop: '12px', borderTop: '1px solid var(--color-border)', paddingTop: '12px' }}>
+      <button
+        onClick={handleToggle}
+        style={{
+          fontSize: '13px',
+          color: 'var(--color-primary)',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '0',
+          fontWeight: '500',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        {open ? '▼' : '▶'} 💬 Reply as Host
+      </button>
+
+      {open && (
+        <div style={{ marginTop: '12px' }}>
+          {/* Conversation history */}
+          {loadingMessages ? (
+            <div style={{ fontSize: '13px', color: 'var(--color-text-muted)', marginBottom: '10px' }}>
+              Loading messages…
+            </div>
+          ) : (
+            <div
+              style={{
+                maxHeight: '200px',
+                overflowY: 'auto',
+                background: 'var(--color-dark)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px',
+                marginBottom: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              {messages.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>No messages yet.</div>
+              ) : (
+                messages.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: m.role === 'GUEST' ? 'flex-start' : 'flex-end',
+                    }}
+                  >
+                    <div
+                      style={{
+                        maxWidth: '80%',
+                        padding: '7px 10px',
+                        borderRadius: '10px',
+                        fontSize: '12px',
+                        lineHeight: '1.4',
+                        whiteSpace: 'pre-wrap',
+                        background:
+                          m.role === 'GUEST'
+                            ? 'var(--color-surface-elevated)'
+                            : m.role === 'STAFF'
+                            ? 'rgba(34,197,94,0.15)'
+                            : 'rgba(233,69,96,0.12)',
+                        color:
+                          m.role === 'STAFF'
+                            ? 'var(--color-success)'
+                            : 'var(--color-text)',
+                        border:
+                          m.role === 'STAFF'
+                            ? '1px solid rgba(34,197,94,0.3)'
+                            : undefined,
+                      }}
+                    >
+                      <span style={{ fontSize: '10px', opacity: 0.6 }}>
+                        {m.role === 'GUEST' ? '👤 Guest' : m.role === 'STAFF' ? '🏠 Host' : '🤖 AI'}{' '}
+                      </span>
+                      {m.content}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Reply input */}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <textarea
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSend();
+                }
+              }}
+              placeholder="Type your reply to the guest…"
+              rows={2}
+              style={{
+                flex: 1,
+                background: 'var(--color-surface-elevated)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '8px 12px',
+                fontSize: '13px',
+                color: 'var(--color-text)',
+                outline: 'none',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={() => void handleSend()}
+              disabled={sending || !reply.trim()}
+              className="btn btn-primary"
+              style={{ fontSize: '13px', padding: '8px 14px', flexShrink: 0, alignSelf: 'flex-end' }}
+            >
+              {sending ? 'Sending…' : 'Send as Host'}
+            </button>
+          </div>
+          {sendError && (
+            <div style={{ fontSize: '12px', color: 'var(--color-error)', marginTop: '6px' }}>
+              {sendError}
+            </div>
+          )}
+          {sendSuccess && (
+            <div style={{ fontSize: '12px', color: 'var(--color-success)', marginTop: '6px' }}>
+              ✓ Message sent to guest
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EscalationsPage() {
   const [escalations, setEscalations] = useState<Escalation[]>([]);
@@ -214,6 +446,9 @@ export default function EscalationsPage() {
                         </button>
                       )}
                     </div>
+
+                    {/* Reply as Host panel */}
+                    <ReplyPanel escalation={esc} onMessageSent={() => void load()} />
                   </div>
                 ))}
               </div>

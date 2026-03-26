@@ -2,38 +2,39 @@ import { Router, type Router as RouterType } from 'express';
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@pipo/db';
-import { requireAuth } from '../../middleware/auth.js';
-import { requireTenant } from '../../middleware/tenant.js';
-import { validateBody, validateParams } from '../../middleware/validate.js';
+import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
+import { chatRateLimit } from '../../middleware/rateLimit.js';
 import { logger } from '../../config/logger.js';
 import { sendEscalationEmail } from '../../lib/email.js';
 
-export const chatRouter: RouterType = Router();
+export const widgetRouter: RouterType = Router();
 
-const propertyParamsSchema = z.object({
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const widgetParamsSchema = z.object({
   propertyId: z.string().min(1),
 });
 
-const chatSchema = z.object({
+const widgetConversationParamsSchema = z.object({
+  propertyId: z.string().min(1),
+  conversationId: z.string().min(1),
+});
+
+const widgetChatSchema = z.object({
   guestMessage: z.string().min(1).max(2000),
   guestName: z.string().min(1).max(100).default('Guest'),
   conversationId: z.string().optional(),
-  conversationHistory: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant']),
-        content: z.string(),
-      }),
-    )
-    .max(40)
-    .default([]),
+});
+
+const messagesQuerySchema = z.object({
+  since: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
 // Escalation signal parsing
 // ---------------------------------------------------------------------------
-// Claude prepends [ESCALATE: <reason>] when it needs a human.
-// We strip it from the visible reply and create a DB escalation record.
 
 const ESCALATE_REGEX = /^\[ESCALATE:\s*(.+?)\]\s*/i;
 
@@ -49,25 +50,23 @@ function parseEscalation(text: string): { reply: string; escalationReason: strin
 }
 
 // ---------------------------------------------------------------------------
-// POST /properties/:propertyId/test-chat
+// POST /widget/:propertyId/chat
 // ---------------------------------------------------------------------------
 
-chatRouter.post(
-  '/properties/:propertyId/test-chat',
-  requireAuth,
-  validateParams(propertyParamsSchema),
-  requireTenant,
-  validateBody(chatSchema),
+widgetRouter.post(
+  '/widget/:propertyId/chat',
+  chatRateLimit,
+  validateParams(widgetParamsSchema),
+  validateBody(widgetChatSchema),
   async (req, res) => {
-    const { organizationId, userId } = req.tenantScope!;
     const { propertyId } = req.params as { propertyId: string };
-    const { guestMessage, guestName, conversationId, conversationHistory } =
-      req.body as z.infer<typeof chatSchema>;
+    const { guestMessage, guestName, conversationId } =
+      req.body as z.infer<typeof widgetChatSchema>;
 
     try {
-      // Verify property belongs to org
+      // Verify property exists and AI is enabled
       const property = await prisma.property.findFirst({
-        where: { id: propertyId, organizationId },
+        where: { id: propertyId },
         select: {
           id: true,
           name: true,
@@ -81,6 +80,11 @@ chatRouter.post(
 
       if (!property) {
         res.status(404).json({ error: 'Property not found' });
+        return;
+      }
+
+      if (!property.aiEnabled) {
+        res.status(403).json({ error: 'AI is not enabled for this property' });
         return;
       }
 
@@ -113,7 +117,16 @@ chatRouter.post(
 
       const activeConversationId = conversation.id;
 
-      // Save guest message
+      // Check for open escalation (human takeover mode)
+      const openEscalation = await prisma.escalation.findFirst({
+        where: {
+          conversationId: activeConversationId,
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+        },
+        select: { id: true },
+      });
+
+      // Save guest message regardless
       await prisma.message.create({
         data: {
           conversationId: activeConversationId,
@@ -121,6 +134,38 @@ chatRouter.post(
           content: guestMessage,
         },
       });
+
+      await prisma.conversation.update({
+        where: { id: activeConversationId },
+        data: { updatedAt: new Date() },
+      });
+
+      if (openEscalation) {
+        // Staff/human takeover mode — don't call AI
+        // Check for any recent STAFF messages to return
+        const recentStaffMessages = await prisma.message.findMany({
+          where: {
+            conversationId: activeConversationId,
+            role: 'STAFF',
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { content: true, createdAt: true },
+        });
+
+        logger.info(
+          { conversationId: activeConversationId },
+          'Widget chat in staff mode — skipping AI',
+        );
+
+        res.json({
+          reply: null,
+          staffMode: true,
+          conversationId: activeConversationId,
+          latestStaffMessage: recentStaffMessages[0] ?? null,
+        });
+        return;
+      }
 
       // -----------------------------------------------------------------------
       // Build system prompt
@@ -172,13 +217,24 @@ Only escalate when genuinely needed — not for every question.
 ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTIONS\n${property.systemPromptExtra}` : ''}`;
 
       // -----------------------------------------------------------------------
-      // Call Claude
+      // Build conversation history from DB
       // -----------------------------------------------------------------------
-      const client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] });
+      const recentMessages = await prisma.message.findMany({
+        where: {
+          conversationId: activeConversationId,
+          role: { in: ['GUEST', 'AI'] },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 40,
+        select: { role: true, content: true },
+      });
+
+      // Exclude the message we just saved (last one)
+      const historyMessages = recentMessages.slice(0, -1);
 
       const messages: Anthropic.MessageParam[] = [
-        ...conversationHistory.map((m) => ({
-          role: m.role,
+        ...historyMessages.map((m) => ({
+          role: m.role === 'GUEST' ? ('user' as const) : ('assistant' as const),
           content: m.content,
         })),
         {
@@ -186,6 +242,11 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
           content: `${guestName}: ${guestMessage}`,
         },
       ];
+
+      // -----------------------------------------------------------------------
+      // Call Claude
+      // -----------------------------------------------------------------------
+      const client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] });
 
       const startTime = Date.now();
       const response = await client.messages.create({
@@ -216,16 +277,10 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
         },
       });
 
-      // Touch conversation updatedAt
-      await prisma.conversation.update({
-        where: { id: activeConversationId },
-        data: { updatedAt: new Date() },
-      });
-
       // -----------------------------------------------------------------------
       // Create escalation if signalled
       // -----------------------------------------------------------------------
-      let escalation = null;
+      let escalated = false;
       if (escalationReason) {
         try {
           const existingEscalation = await prisma.escalation.findFirst({
@@ -237,7 +292,7 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
           });
 
           if (!existingEscalation) {
-            escalation = await prisma.escalation.create({
+            await prisma.escalation.create({
               data: {
                 conversationId: activeConversationId,
                 trigger: 'AI_REQUESTED',
@@ -248,9 +303,10 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
 
             logger.info(
               { conversationId: activeConversationId, reason: escalationReason },
-              'Escalation created from test chat',
+              'Escalation created from widget chat',
             );
 
+            // Send email notification
             const hostEmail = process.env['HOST_NOTIFICATION_EMAIL'];
             if (hostEmail) {
               void sendEscalationEmail({
@@ -269,6 +325,8 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
             where: { id: activeConversationId },
             data: { status: 'ESCALATED' },
           });
+
+          escalated = true;
         } catch (escErr) {
           logger.error({ escErr }, 'Failed to create escalation record');
         }
@@ -276,14 +334,77 @@ ${knowledgeContext}${property.systemPromptExtra ? `\n\n## ADDITIONAL INSTRUCTION
 
       res.json({
         reply,
-        propertyName: property.name,
         conversationId: activeConversationId,
-        escalated: !!escalationReason,
-        escalationReason: escalationReason ?? null,
+        escalated,
+        staffMode: false,
       });
     } catch (err: unknown) {
-      logger.error({ err }, 'Test chat error');
+      logger.error({ err }, 'Widget chat error');
       res.status(500).json({ error: 'Failed to get AI response' });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /widget/:propertyId/conversations/:conversationId/messages?since=<ISO>
+// ---------------------------------------------------------------------------
+
+widgetRouter.get(
+  '/widget/:propertyId/conversations/:conversationId/messages',
+  chatRateLimit,
+  validateParams(widgetConversationParamsSchema),
+  validateQuery(messagesQuerySchema),
+  async (req, res) => {
+    const { propertyId, conversationId } = req.params as {
+      propertyId: string;
+      conversationId: string;
+    };
+    const query = req.query as z.infer<typeof messagesQuerySchema>;
+
+    try {
+      // Verify conversation belongs to property
+      const conversation = await prisma.conversation.findFirst({
+        where: { id: conversationId, propertyId },
+        select: { id: true },
+      });
+
+      if (!conversation) {
+        res.status(404).json({ error: 'Conversation not found' });
+        return;
+      }
+
+      const sinceDate = query.since ? new Date(query.since) : undefined;
+
+      const messages = await prisma.message.findMany({
+        where: {
+          conversationId,
+          ...(sinceDate && { createdAt: { gt: sinceDate } }),
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          createdAt: true,
+        },
+      });
+
+      // Check staff mode
+      const openEscalation = await prisma.escalation.findFirst({
+        where: {
+          conversationId,
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+        },
+        select: { id: true },
+      });
+
+      res.json({
+        messages,
+        staffMode: openEscalation !== null,
+      });
+    } catch (err: unknown) {
+      logger.error({ err }, 'Widget messages error');
+      res.status(500).json({ error: 'Internal server error' });
     }
   },
 );

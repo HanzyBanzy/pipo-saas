@@ -18,7 +18,7 @@ export default function TestChatPage() {
   const propertyId = params['propertyId'] as string;
 
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: "Hi! I'm Pipo, your AI concierge. Ask me anything about the property." },
+    { role: 'assistant', content: "Hi! I'm Pipo, your Personal House Companion. Ask me anything about the property." },
   ]);
   const [input, setInput] = useState('');
   const [guestName, setGuestName] = useState('Test Guest');
@@ -32,7 +32,7 @@ export default function TestChatPage() {
 
   function clearChat() {
     setMessages([
-      { role: 'assistant', content: "Hi! I'm Pipo, your AI concierge. Ask me anything about the property." },
+      { role: 'assistant', content: "Hi! I'm Pipo, your Personal House Companion. Ask me anything about the property." },
     ]);
     setConversationId(null);
   }
@@ -101,7 +101,7 @@ export default function TestChatPage() {
       <div style={{ marginBottom: '16px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>🧪 Test Chat</h2>
         <p style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>
-          Simulate a guest conversation to test your AI concierge.
+          Simulate a guest conversation to test your Personal House Companion.
         </p>
       </div>
 

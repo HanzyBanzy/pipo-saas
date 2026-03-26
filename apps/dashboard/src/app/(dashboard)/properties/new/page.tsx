@@ -137,7 +137,7 @@ export default function NewPropertyPage() {
           Add Property
         </h1>
         <p style={{ color: 'var(--color-text-muted)', fontSize: '14px' }}>
-          Create a new property and configure its AI concierge.
+          Create a new property and configure its Personal House Companion.
         </p>
       </div>
 

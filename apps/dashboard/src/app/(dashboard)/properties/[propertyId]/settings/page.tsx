@@ -104,7 +104,7 @@ export default function PropertySettingsPage() {
       </div>
 
       <div className="card" style={{ marginBottom: '16px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '16px' }}>AI Concierge</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '16px' }}>Personal House Companion</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
             <div>

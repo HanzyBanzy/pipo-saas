@@ -10,7 +10,8 @@ export function createApp(): Express {
   // Security headers
   app.use(helmet());
 
-  // CORS — allow dashboard in development
+  // CORS — allow all origins for widget routes, dashboard for other routes
+  app.use('/api/widget', cors({ origin: '*' }));
   app.use(cors({
     origin: process.env['DASHBOARD_URL'] ?? 'http://localhost:3000',
     credentials: true,

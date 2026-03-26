@@ -192,7 +192,7 @@ export default async function PropertyOverviewPage({
             marginBottom: '12px',
           }}
         >
-          AI Concierge Settings
+          Personal House Companion Settings
         </h2>
         <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
           <div>
@@ -272,6 +272,12 @@ export default async function PropertyOverviewPage({
           >
             Test Chat
           </Link>
+        </div>
+        <div style={{ marginTop: '8px', padding: '12px', background: 'var(--color-surface-elevated)', borderRadius: 'var(--radius-sm)' }}>
+          <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Guest Chat Link</div>
+          <code style={{ fontSize: '12px', color: 'var(--color-primary)' }}>
+            http://localhost:3000/widget/{propertyId}
+          </code>
         </div>
       </div>
     </div>

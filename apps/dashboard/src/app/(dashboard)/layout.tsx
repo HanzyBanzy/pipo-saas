@@ -64,7 +64,7 @@ export default function DashboardLayout({
               marginTop: '2px',
             }}
           >
-            AI Concierge Platform
+            Personal House Companion
           </div>
         </div>
 

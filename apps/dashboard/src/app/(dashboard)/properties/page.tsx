@@ -74,7 +74,7 @@ export default async function PropertiesPage() {
             Properties
           </h1>
           <p style={{ color: 'var(--color-text-muted)', fontSize: '14px' }}>
-            Manage your rental properties and their AI concierge settings
+            Manage your rental properties and their Personal House Companion settings
           </p>
         </div>
         <Link href="/properties/new" className="btn btn-primary">
@@ -105,7 +105,7 @@ export default async function PropertiesPage() {
               margin: '0 auto 24px',
             }}
           >
-            Add your first property to start using Pipo&apos;s AI concierge for
+            Add your first property to start using Pipo&apos;s Personal House Companion for
             your guests.
           </p>
           <Link href="/properties/new" className="btn btn-primary">

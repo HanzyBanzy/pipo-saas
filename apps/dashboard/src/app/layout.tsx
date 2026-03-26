@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Pipo House — AI Concierge Dashboard',
-  description: 'Manage your properties and AI concierge settings',
+  title: 'Pipo House — Personal House Companion Dashboard',
+  description: 'Manage your properties and Personal House Companion settings',
 };
 
 export default function RootLayout({
