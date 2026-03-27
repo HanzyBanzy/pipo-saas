@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 
 const API = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001';
 const HEADERS = {
@@ -401,7 +402,13 @@ export default function PropertyEscalationsPage() {
                           {esc.reason}
                         </div>
                         <div style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>
-                          {esc.conversation.guestName ?? 'Anonymous Guest'} · {esc.conversation.channel.replace('_', ' ')}
+                          {esc.conversation.guestName ?? 'Anonymous Guest'} · {esc.conversation.channel.replace('_', ' ')} ·{' '}
+                          <Link
+                            href={`/properties/${propertyId}/test-chat?conversationId=${esc.conversationId}` as never}
+                            style={{ color: 'var(--color-primary)' }}
+                          >
+                            View chat
+                          </Link>
                         </div>
                         {esc.notes && (
                           <div style={{ fontSize: '13px', color: 'var(--color-text-muted)', marginTop: '6px', fontStyle: 'italic' }}>

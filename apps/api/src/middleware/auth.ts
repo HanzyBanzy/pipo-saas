@@ -6,7 +6,13 @@ const DEV_TOKEN = 'dev-token';
 const isDev = process.env['NODE_ENV'] !== 'production';
 
 // Apply to all routes — populates req.auth
-export const clerkAuth: RequestHandler = clerkMiddleware() as RequestHandler;
+// In dev mode without a Clerk publishable key, skip Clerk entirely so the
+// dev-token bypass in requireAuth / requireTenant can function.
+const hasClerkKey = Boolean(process.env['CLERK_PUBLISHABLE_KEY']);
+
+export const clerkAuth: RequestHandler = hasClerkKey
+  ? (clerkMiddleware() as RequestHandler)
+  : (_req, _res, next) => next();
 
 // Use on protected routes — rejects if not authenticated
 export function requireAuth(

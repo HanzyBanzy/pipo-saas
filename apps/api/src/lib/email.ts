@@ -1,16 +1,10 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { logger } from '../config/logger.js';
 
-function getTransporter(): nodemailer.Transporter | null {
-  const user = process.env['SMTP_USER'];
-  const pass = process.env['SMTP_PASS'];
-  if (!user || !pass) return null;
-  return nodemailer.createTransport({
-    host: process.env['SMTP_HOST'] ?? 'smtp.gmail.com',
-    port: parseInt(process.env['SMTP_PORT'] ?? '587'),
-    secure: false,
-    auth: { user, pass },
-  });
+function getResend(): Resend | null {
+  const key = process.env['RESEND_API_KEY'];
+  if (!key) return null;
+  return new Resend(key);
 }
 
 export async function sendEscalationEmail(params: {
@@ -22,9 +16,9 @@ export async function sendEscalationEmail(params: {
   conversationId: string;
   propertyId: string;
 }): Promise<void> {
-  const transporter = getTransporter();
-  if (!transporter) {
-    logger.warn('SMTP not configured — escalation email skipped');
+  const resend = getResend();
+  if (!resend) {
+    logger.warn('Resend not configured — escalation email skipped');
     return;
   }
 
@@ -34,8 +28,8 @@ export async function sendEscalationEmail(params: {
     ] ?? '⚠️';
 
   try {
-    await transporter.sendMail({
-      from: `"Pipo House" <${process.env['SMTP_USER']}>`,
+    await resend.emails.send({
+      from: 'Pipo House <onboarding@resend.dev>',
       to: params.to,
       subject: `${urgencyEmoji} ${params.urgency} escalation — ${params.propertyName}`,
       html: `
