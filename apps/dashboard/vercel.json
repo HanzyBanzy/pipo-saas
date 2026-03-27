@@ -1,0 +1,6 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && pnpm install && pnpm --filter @pipo/types build && pnpm --filter dashboard build",
+  "outputDirectory": ".next",
+  "installCommand": "pnpm install --ignore-scripts"
+}
