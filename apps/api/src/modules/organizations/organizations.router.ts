@@ -11,7 +11,7 @@ import { logger } from '../../config/logger.js';
 export const organizationsRouter: RouterType = Router();
 
 const DEV_TOKEN = 'dev-token';
-const isDev = process.env['NODE_ENV'] !== 'production';
+const hasClerkSetup = Boolean(process.env['CLERK_SECRET_KEY']?.startsWith('sk_live_'));
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -56,7 +56,7 @@ const memberIdSchema = z.object({
 
 organizationsRouter.get('/', requireAuth, async (req, res) => {
   const bearer = (req.headers['authorization'] ?? '').replace('Bearer ', '');
-  const isDevRequest = isDev && bearer === DEV_TOKEN;
+  const isDevRequest = !hasClerkSetup && bearer === DEV_TOKEN;
 
   try {
     let userId: string;
