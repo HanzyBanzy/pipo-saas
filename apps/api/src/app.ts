@@ -63,7 +63,7 @@ export function createApp(): Express {
       _next: express.NextFunction,
     ) => {
       logger.error({ err }, 'Unhandled error');
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal server error', detail: err?.message });
     },
   );
 
