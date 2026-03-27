@@ -13,7 +13,18 @@ export function createApp(): Express {
   // CORS — allow all origins for widget routes, dashboard for other routes
   app.use('/api/widget', cors({ origin: '*' }));
   app.use(cors({
-    origin: process.env['DASHBOARD_URL'] ?? 'http://localhost:3000',
+    origin: (origin, callback) => {
+      const allowed = [
+        process.env['DASHBOARD_URL'] ?? 'http://localhost:3000',
+        'http://localhost:3000',
+        'https://dashboard-production-7a98.up.railway.app',
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true); // allow all for now during development
+      }
+    },
     credentials: true,
   }));
 
