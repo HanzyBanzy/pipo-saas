@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { logger } from '../config/logger.js';
 
 const DEV_TOKEN = 'dev-token';
-const isDev = process.env['NODE_ENV'] !== 'production';
+const hasClerkSetup = Boolean(process.env['CLERK_SECRET_KEY']?.startsWith('sk_live_'));
 
 // Apply to all routes — populates req.auth
 // In dev mode without a Clerk publishable key, skip Clerk entirely so the
@@ -21,7 +21,7 @@ export function requireAuth(
   next: NextFunction,
 ): void {
   // Dev bypass — allows dashboard to work without Clerk JWT
-  if (isDev) {
+  if (!hasClerkSetup) {
     const bearer = (req.headers['authorization'] ?? '').replace('Bearer ', '');
     if (bearer === DEV_TOKEN) {
       next();

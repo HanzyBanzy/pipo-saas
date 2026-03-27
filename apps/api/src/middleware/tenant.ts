@@ -15,7 +15,7 @@ import { logger } from '../config/logger.js';
  * On failure: responds with 401 or 403
  */
 const DEV_TOKEN = 'dev-token';
-const isDev = process.env['NODE_ENV'] !== 'production';
+const hasClerkSetup = Boolean(process.env['CLERK_SECRET_KEY']?.startsWith('sk_live_'));
 
 export async function requireTenant(
   req: Request,
@@ -23,7 +23,7 @@ export async function requireTenant(
   next: NextFunction,
 ): Promise<void> {
   // Dev bypass — use first org in DB without Clerk validation
-  if (isDev) {
+  if (!hasClerkSetup) {
     const bearer = (req.headers['authorization'] ?? '').replace('Bearer ', '');
     if (bearer === DEV_TOKEN) {
       const orgHeader = req.headers['x-organization-id'];
